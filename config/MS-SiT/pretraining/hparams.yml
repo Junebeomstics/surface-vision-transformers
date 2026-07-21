@@ -1,0 +1,86 @@
+# MS-SiT masked surface modelling (MAE-style) pretraining.
+#
+# Run with:
+#   cd tools && python pretrain_ms_sit.py ../config/MS-SiT/pretraining/hparams.yml
+#
+# Unlike config/SiT/pretraining/mpp.yml this does not use the labelled `metrics`
+# dataloader: pretraining needs no labels, so the data section points at a
+# directory of merged .shape.gii files (or an explicit list) instead of a
+# labels CSV.
+
+MODEL: ms-sit
+SSL: msm            # masked surface modelling
+
+mesh_resolution:
+  ico_mesh: 6       # full mesh resolution (40,962 vertices)
+  ico_grid: 4       # patching grid resolution -> 5120 patches x 15 vertices
+  reorder: True     # keep consistent with the downstream training config
+
+data:
+  path_to_workdir: ..
+  # directory holding <subject>.<L|R>.<...>.shape.gii files
+  path_to_metrics: /mnt/scratch/junb/deepRetinotopy/runs/20260721-mssit-hcp-ico6/metrics
+  # optional newline-separated file list; null => glob the whole directory
+  file_list: null
+  # optional cortex mask on the ico6 mesh; loss and normalisation ignore the
+  # medial wall when provided
+  path_to_mask: /mnt/scratch/junb/deepRetinotopy/runs/20260721-mssit-hcp-ico6/templates/atlasroi_ico6.shape.gii
+  channels: [0, 1, 2]           # curv, sulc, thickness
+  normalise: sub-standardise    # sub-standardise | none
+  clipping: True
+  # per-channel clip bounds, applied in the order given by `channels`.
+  # curv carries FreeSurfer curvature singularities reaching |curv| > 50 at a
+  # handful of vertices, so clipping is not optional here.
+  clip_bounds:
+    - [-1.0, 1.0]     # curv
+    - [-2.0, 2.0]     # sulc
+    - [0.0, 5.0]      # thickness
+  val_fraction: 0.05
+
+transformer:
+  model: ms-sit
+  dim: 96
+  depth: [2, 2, 6, 2]
+  heads: [3, 6, 12, 24]
+  window_size: [64, 64, 64, 80]
+  window_size_factor: 4
+  mlp_ratio: 4
+  dropout: 0.0
+  attention_dropout: 0.0
+  drop_path_rate: 0.1
+  use_pos_emb: False
+
+pretraining_msm:
+  # Patches overlap: 5120 x 15 = 76,800 slots over 40,962 vertices, because
+  # neighbouring triangular patches share their edges and corners (37.5% of
+  # vertices sit in 1 patch, 56.25% in 2, 6.26% in 5-6).
+  #
+  # A vertex is therefore only hidden from the network when EVERY patch
+  # covering it is masked, which is well below the patch masking rate.
+  # Measured hidden-vertex fraction: 0.50 -> 0.33, 0.60 -> 0.43,
+  # 0.75 -> 0.61, 0.85 -> 0.74.
+  # 0.85 is what lands near the 75% masking used by He et al.
+  mask_prob: 0.85
+  replace_prob: 0.8    # rest of the masked patches are swapped, not tokenised
+  norm_target: True
+
+training:
+  bs: 8
+  bs_val: 8
+  epochs: 100
+  gpu: 0
+  LR: 0.0005
+  warmup_epochs: 5
+  val_epoch: 1
+  save_ckpt: True
+  num_workers: 4
+  seed: 0
+
+logging:
+  folder_to_save_model: ../logs/MS-SiT/pretraining
+
+optimisation:
+  optimiser: AdamW
+
+AdamW:
+  weight_decay: 0.05
