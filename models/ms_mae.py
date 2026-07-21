@@ -79,6 +79,14 @@ class masked_surface_modelling(nn.Module):
             channel over masked vertices. Follows the normalised-pixel target of
             He et al. and keeps channels with different units (curv ~1e-1 vs
             thickness ~mm) from dominating the loss.
+        loss_mask_mode: which vertices count as masked for the loss.
+            "intersection" (default): a vertex is scored only when every patch
+                covering it is masked, so it is genuinely hidden from the model.
+            "union": a vertex is scored when any covering patch is masked. This
+                leaks input into the loss (43% of loss terms at mask_prob 0.6
+                are still visible via an unmasked neighbouring patch) and makes
+                the task partly a copy. Kept as an option so the two can be
+                compared head to head.
     """
 
     def __init__(self,
@@ -88,14 +96,21 @@ class masked_surface_modelling(nn.Module):
                  mask_prob=0.5,
                  replace_prob=0.8,
                  norm_target=True,
+                 loss_mask_mode="intersection",
                  n_vertices=N_VERTICES_ICO6):
         super().__init__()
+
+        if loss_mask_mode not in ("intersection", "union"):
+            raise ValueError(
+                f"loss_mask_mode must be 'intersection' or 'union', got {loss_mask_mode!r}"
+            )
 
         self.transformer = transformer
         self.num_channels = num_channels
         self.mask_prob = mask_prob
         self.replace_prob = replace_prob
         self.norm_target = norm_target
+        self.loss_mask_mode = loss_mask_mode
         self.n_vertices = n_vertices
 
         self.num_patches, self.num_vertices = patch_to_vertex.shape
@@ -128,18 +143,21 @@ class masked_surface_modelling(nn.Module):
         return out
 
     def masked_vertices(self, patch_mask):
-        """(B,L) bool patch mask -> (B,n_vertices) bool "genuinely hidden" mask.
+        """(B,L) bool patch mask -> (B,n_vertices) bool loss mask.
 
-        A vertex is hidden only when *every* patch covering it is masked. Using
-        the union instead (any covering patch masked) would put vertices into
-        the loss that are still literally present in the input via an unmasked
-        neighbouring patch: at mask_prob 0.6 that is 43% of the loss terms,
-        which collapses the pretext task into partly copying the input.
+        counts[b,v] = number of masked patches covering vertex v.
+          intersection: v is masked iff counts == coverage (all covering
+            patches masked -> genuinely hidden from the model).
+          union: v is masked iff counts > 0 (any covering patch masked). This
+            includes vertices still visible via an unmasked neighbour: at
+            mask_prob 0.6 that is 43% of the loss terms.
         """
         b = patch_mask.shape[0]
         counts = torch.zeros(b, self.n_vertices, device=patch_mask.device)
         contrib = patch_mask.float().repeat_interleave(self.num_vertices, dim=1)
         counts.scatter_add_(1, self.flat_index.unsqueeze(0).expand(b, -1), contrib)
+        if self.loss_mask_mode == "union":
+            return counts > 0
         return counts >= self.coverage.unsqueeze(0)
 
     def corrupt(self, batch, patch_mask):
@@ -195,7 +213,9 @@ class masked_surface_modelling(nn.Module):
 
         stats = {
             "masked_patch_frac": patch_mask.float().mean().item(),
-            "hidden_vertex_frac": vmask.float().mean().item(),
+            # fraction of vertices contributing to the loss; label reflects the
+            # mode, since under "union" these are not all genuinely hidden
+            "loss_vertex_frac": vmask.float().mean().item(),
         }
         return loss, stats
 

@@ -63,6 +63,12 @@ pretraining_msm:
   mask_prob: 0.85
   replace_prob: 0.8    # rest of the masked patches are swapped, not tokenised
   norm_target: True
+  # loss mask over overlapping patches:
+  #   intersection - score a vertex only when every covering patch is masked
+  #                  (genuinely hidden). This is the correct default.
+  #   union        - score a vertex when any covering patch is masked; leaks
+  #                  visible input into the loss. Provided for A/B comparison.
+  loss_mask_mode: intersection
 
 training:
   bs: 8

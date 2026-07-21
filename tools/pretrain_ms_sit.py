@@ -179,7 +179,9 @@ def main():
         mask_prob=msm["mask_prob"],
         replace_prob=msm["replace_prob"],
         norm_target=msm["norm_target"],
+        loss_mask_mode=msm.get("loss_mask_mode", "intersection"),
     ).to(device)
+    print(f"loss mask mode: {ssl.loss_mask_mode}")
 
     n_par = sum(p.numel() for p in ssl.parameters() if p.requires_grad)
     print(f"trainable parameters: {n_par:,}")
