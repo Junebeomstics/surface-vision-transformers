@@ -1,0 +1,7 @@
+torch
+lightning
+timm
+einops
+torch_geometric
+pandas
+numpy
