@@ -26,12 +26,9 @@ LR = 1e-4
 WEIGHT_DECAY = 0.05
 MASK_RATIO = 0.6
 
-# SiT tiny, ico_grid=4 (5120 patches x 15 vertices) -- see model.py / ICO_GRID
-# num_channels is set by whatever cortical features are stacked in the .pt files
-# (e.g. 3 for curvature, thickness, sulcal depth) -- change freely, everything
-# downstream (patch embedding, mask token, decoder) derives its shape from it.
+# SiT tiny
 ENCODER_KWARGS = dict(
-    ico_grid=4,
+    ico_grid=2,
     num_channels=3,
     embed_dim=192,
     depth=12,
@@ -45,6 +42,7 @@ def main():
     datamodule = HCPDataModule(root=DATA_ROOT, batch_size=BATCH_SIZE, num_workers=NUM_WORKERS)
     model = SiTPretraining(ENCODER_KWARGS, mask_ratio=MASK_RATIO, lr=LR, weight_decay=WEIGHT_DECAY)
 
+    # Runs on 1 gpu by default
     trainer = L.Trainer(
         max_epochs=MAX_EPOCHS,
         logger=CSVLogger("logs", name="pretraining"),

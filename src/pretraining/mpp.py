@@ -19,7 +19,7 @@ import torch.nn.functional as F
 
 from models.encoder import SiTEncoder
 
-
+# Random sampling of masks to be masked
 def random_mask(batch_size, num_patches, mask_ratio, device):
     """Boolean mask (B, N), exactly round(mask_ratio * N) True per row."""
     num_masked = max(1, int(mask_ratio * num_patches))
@@ -36,10 +36,13 @@ class MaskedPatchPrediction(nn.Module):
         self.encoder = encoder
         self.mask_ratio = mask_ratio
 
+        # Define a randomly initialized, learnable mask token
+        # that will replace masked patches
         patch_dim = encoder.num_vertices * encoder.num_channels
         self.mask_token = nn.Parameter(torch.zeros(1, 1, patch_dim))
         nn.init.trunc_normal_(self.mask_token, std=.02)
 
+        # Reconstruct patch from mask token embedding
         self.decoder = nn.Linear(encoder.embed_dim, patch_dim)
 
     def forward(self, x):
@@ -47,6 +50,7 @@ class MaskedPatchPrediction(nn.Module):
         patches = self.encoder.to_patch_embedding[0](x)
         mask = random_mask(patches.shape[0], patches.shape[1], self.mask_ratio, x.device)
 
+        # Mask out some patches with learnable mask token
         corrupted = torch.where(mask.unsqueeze(-1), self.mask_token, patches)
         embedded = self.encoder.to_patch_embedding[1](corrupted)
 

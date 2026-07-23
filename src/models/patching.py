@@ -23,6 +23,7 @@ import torch
 DEFAULT_ROOT = osp.join(osp.dirname(__file__), "..", "..", "data", "patch_extraction")
 
 
+# Reads location of sphere vertices that make up the patch
 def load_patch_indices(ico_mesh=6, ico_grid=4, reorder=True, root=DEFAULT_ROOT):
     """Returns a LongTensor (num_patches, num_vertices) of full-mesh vertex
     indices, one row per patch, in patch order."""
@@ -37,6 +38,8 @@ def load_patch_indices(ico_mesh=6, ico_grid=4, reorder=True, root=DEFAULT_ROOT):
     return torch.as_tensor(indices.to_numpy().T, dtype=torch.long)
 
 
+# Compute patch representation by gathering features
+# of the vertices that form it
 def patchify(mesh_features, patch_indices):
     """Gather per-vertex mesh features onto the patch grid.
 
@@ -55,11 +58,14 @@ def unpatchify_mean(patch_values, patch_indices, num_mesh_vertices):
     patch_indices: (num_patches, num_vertices)
     returns: (..., num_mesh_vertices)
     """
+    # Tells us which vertices are included in each patch
     flat_indices = patch_indices.reshape(-1).to(patch_values.device)
+    # Embeddings of all the vertices in all the patches
     flat_values = patch_values.reshape(*patch_values.shape[:-2], -1)
 
     out_shape = (*patch_values.shape[:-2], num_mesh_vertices)
     summed = torch.zeros(out_shape, dtype=patch_values.dtype, device=patch_values.device)
+    # Sum share vertices representations
     summed.index_add_(-1, flat_indices, flat_values)
 
     counts = torch.zeros(num_mesh_vertices, dtype=patch_values.dtype, device=patch_values.device)

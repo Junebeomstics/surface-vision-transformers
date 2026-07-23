@@ -7,11 +7,12 @@ out as:
     data/pretraining/val/*.pt
 
 Each .pt file holds a single float tensor of shape (C, N, V): channels
-(e.g. curvature, myelination, thickness, sulcal depth), number of
-patches, and vertices per patch -- i.e. already patched onto the
-icosphere grid with the reference repo's `patch_extraction` pipeline, in
-the same layout MSSiT.forward expects (batched to B, C, N, V). No labels
-are needed since pretraining is self-supervised.
+(e.g. curvature, cortical thickness, sulcal depth -- any number of
+channels works, see ENCODER_KWARGS['num_channels'] in pretrain.py),
+number of patches, and vertices per patch -- i.e. already patched onto
+the icosphere grid with the reference repo's `patch_extraction`
+pipeline, in the same layout SiT.forward expects (batched to
+B, C, N, V). No labels are needed since pretraining is self-supervised.
 """
 import os.path as osp
 from glob import glob
@@ -23,6 +24,7 @@ from torch.utils.data import DataLoader, Dataset
 
 class HCPPretrainDataset(Dataset):
     def __init__(self, root, split):
+        # gather all files paths
         self.files = sorted(glob(osp.join(root, split, "*.pt")))
         if not self.files:
             raise FileNotFoundError(f"no .pt files found under {osp.join(root, split)}")

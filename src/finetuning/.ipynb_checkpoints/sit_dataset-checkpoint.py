@@ -31,6 +31,7 @@ class SiTRetinotopy(Dataset):
     def __init__(self, root, split="Train", hemisphere="Left", prediction="polarAngle",
                  feature_bundle="myelincurv", seed=None, num_channels=3,
                  ico_mesh=6, ico_grid=4, reorder=False):
+        # Load fine-tuning data (vertices level, visual cortex only)
         self.roi = Retinotopy(root, split=split, hemisphere=hemisphere, prediction=prediction,
                                feature_bundle=feature_bundle, seed=seed)
 
@@ -43,6 +44,8 @@ class SiTRetinotopy(Dataset):
                 "a feature bundle that has the same channels the encoder was pretrained on."
             )
 
+        # Load mapping between ROI (i.e. surface vision areas) and its vertices
+        # TODO: isn't this a subset of the general patch-vertices mapping
         index_path = osp.join(root, f"roi_vertex_index_{hemisphere}.pt")
         if not osp.exists(index_path):
             raise FileNotFoundError(
@@ -62,6 +65,8 @@ class SiTRetinotopy(Dataset):
         subject = self.roi[idx]
         num_mesh = self.num_mesh_vertices
 
+        # Compute vertices representation: those outside ROI are represented with a zero
+        # TODO: do we want to replace this with R^2 weighting???
         x_full = torch.zeros(num_mesh, subject.x.shape[1], dtype=torch.float32)
         x_full[self.roi_vertex_index] = subject.x.float()
         y_full = torch.zeros(num_mesh, dtype=torch.float32)

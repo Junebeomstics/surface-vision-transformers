@@ -29,7 +29,7 @@ class SiTDense(nn.Module):
 
         embed_dim = self.encoder.embed_dim
 
-        # per-patch-token -> per-vertex-within-patch expansion, then unpatch to mesh, then predict
+        # From the patch embedding, predict the embeddings of its vertices
         self.up = nn.Linear(embed_dim, embed_dim * self.encoder.num_vertices)
         patch_indices = load_patch_indices(ico_mesh=ico_mesh, ico_grid=self._ico_grid_from(encoder_kwargs),
                                             reorder=reorder, root=patch_root)
@@ -48,7 +48,9 @@ class SiTDense(nn.Module):
         x = rearrange(x, 'b n (v c) -> b n v c', v=self.encoder.num_vertices)
         # unpatchify_mean expects (..., N, V); move the channel dim out front
         x = rearrange(x, 'b n v c -> b c n v')
-        x = unpatchify_mean(x, self.patch_indices, self.num_mesh_vertices)  # B, C, num_mesh_vertices
+        # Fuse patches together to get a single embedding for each vertex
+        # Output has shape (B, C, num_mesh_vertices)
+        x = unpatchify_mean(x, self.patch_indices, self.num_mesh_vertices)
         return rearrange(x, 'b c m -> b m c')
 
     def forward(self, x):

@@ -1,4 +1,4 @@
 checkpoints/
 data/finetuning/
-data/pre_training/
+data/pretraining/
 logs/

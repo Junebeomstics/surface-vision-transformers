@@ -24,6 +24,7 @@ from torch.utils.data import DataLoader, Dataset
 
 class HCPPretrainDataset(Dataset):
     def __init__(self, root, split):
+        # gather all files paths
         self.files = sorted(glob(osp.join(root, split, "*.pt")))
         if not self.files:
             raise FileNotFoundError(f"no .pt files found under {osp.join(root, split)}")

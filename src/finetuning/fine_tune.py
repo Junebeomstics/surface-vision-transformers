@@ -31,7 +31,8 @@ from sit_dataset import SiTRetinotopy
 ROOT = "data/finetuning"
 PRETRAINED_CKPT = "checkpoints/pretrained.ckpt"   # weights to fine-tune from
 SEEDS = [0, 1, 2, 3, 4]   # each selects processed/seed{N}/ -> one CV fold
-PREDICTIONS = ["polarAngle", "eccentricity", "pRFsize"]   # one independent model per quantity
+PREDICTIONS = ["polarAngle"]   # one independent model per quantity
+HEMISPHERES = ["Left", "Right"]   # one independent model per hemisphere
 BATCH_SIZE = 8
 MAX_EPOCHS = 100
 PATIENCE = 30
@@ -39,7 +40,7 @@ R2_THR = 2.2              # evaluate test error only on reliably-fit vertices
 
 # must match the ENCODER_KWARGS the pretrained checkpoint (PRETRAINED_CKPT) used
 ENCODER_KWARGS = dict(
-    ico_grid=4,
+    ico_grid=2,
     num_channels=3,
     embed_dim=192,
     depth=12,
@@ -92,8 +93,9 @@ class SiTFineTune(L.LightningModule):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
 
 
-def run_fold(seed, prediction):
-    common = dict(seed=seed, prediction=prediction, num_channels=ENCODER_KWARGS["num_channels"])
+def run_fold(seed, prediction, hemisphere):
+    common = dict(seed=seed, prediction=prediction, hemisphere=hemisphere,
+                  num_channels=ENCODER_KWARGS["num_channels"])
     train_ds = SiTRetinotopy(ROOT, "Train", **common)
     val_ds = SiTRetinotopy(ROOT, "Development", **common)
     test_ds = SiTRetinotopy(ROOT, "Test", **common)
@@ -104,8 +106,8 @@ def run_fold(seed, prediction):
 
     trainer = L.Trainer(
         max_epochs=MAX_EPOCHS,
-        # -> logs/{prediction}/seed{N}/version_*/metrics.csv
-        logger=CSVLogger("logs", name=f"{prediction}/seed{seed}"),
+        # -> logs/{prediction}/{hemisphere}/seed{N}/version_*/metrics.csv
+        logger=CSVLogger("logs", name=f"{prediction}/{hemisphere}/seed{seed}"),
         callbacks=[ModelCheckpoint(monitor="val_loss", save_top_k=1),
                    EarlyStopping(monitor="val_loss", patience=PATIENCE)],
         log_every_n_steps=1,
@@ -118,9 +120,10 @@ def run_fold(seed, prediction):
 
 def main():
     for prediction in PREDICTIONS:
-        scores = [run_fold(seed, prediction) for seed in SEEDS]
-        print(f"\n[{prediction}] test MAE over {len(SEEDS)} folds: "
-              f"{np.mean(scores):.4f} +/- {np.std(scores):.4f}")
+        for hemisphere in HEMISPHERES:
+            scores = [run_fold(seed, prediction, hemisphere) for seed in SEEDS]
+            print(f"\n[{prediction}/{hemisphere}] test MAE over {len(SEEDS)} folds: "
+                  f"{np.mean(scores):.4f} +/- {np.std(scores):.4f}")
 
 
 if __name__ == "__main__":

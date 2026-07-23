@@ -22,8 +22,8 @@ from timm.layers import trunc_normal_
 
 from .layers import TransformerBlock
 
-# number of patches / vertices-per-patch for each icosphere subdivision used
-# as the patching grid (sub_ico_N in the reference repo's configs)
+# Different possible patchifications of the icosphere
+# defined as (number of patches, number of vertices) pairs
 ICO_GRID = {
     0: (20, 2145),
     1: (80, 561),
@@ -47,6 +47,7 @@ class SiTEncoder(nn.Module):
         self.num_patches, self.num_vertices = ICO_GRID[ico_grid]
         patch_dim = self.num_vertices * self.num_channels
 
+        # Linearization of patches
         self.to_patch_embedding = nn.Sequential(
             Rearrange('b c n v -> b n (v c)'),
             nn.Linear(patch_dim, self.embed_dim),
