@@ -1,6 +1,7 @@
 checkpoints/
 data/finetuning/
 data/pretraining/
+data/hcp_ico6/
 logs/
 
 # python / jupyter artifacts
