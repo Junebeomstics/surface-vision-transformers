@@ -16,6 +16,7 @@ from lightning.pytorch.loggers import CSVLogger
 
 from dataset import HCPDataModule
 from mpp import SiTPretraining
+from models.config import ENCODER_KWARGS
 
 DATA_ROOT = "data/pretraining"
 CKPT_DIR = "checkpoints"
@@ -26,16 +27,8 @@ LR = 1e-4
 WEIGHT_DECAY = 0.05
 MASK_RATIO = 0.6
 
-# SiT tiny
-ENCODER_KWARGS = dict(
-    ico_grid=2,
-    num_channels=3,
-    embed_dim=192,
-    depth=12,
-    num_heads=3,
-    dim_head=64,
-    mlp_ratio=4,
-)
+# ENCODER_KWARGS imported from models.config -- shared with fine-tuning so the
+# encoders (and thus the transferred pretrained weights) can never drift.
 
 
 def main():
