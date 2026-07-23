@@ -135,20 +135,35 @@ class SiTFineTune(L.LightningModule):
                                r2[i].cpu().numpy(), ecc[i].cpu().numpy()))
 
     def on_test_epoch_end(self):
-        # deepRetinotopy policy: per-subject metric over EVC ROI & R2>10 (& ecc<=12),
-        # then averaged across subjects. regression_metrics applies R2>r2_thr itself.
+        # deepRetinotopy policy: build the subject x subject cross-metric matrix
+        # M[i,j] = metric(pred_i, gt_j) over gt_j's mask (EVC ROI & R2>10 & ecc<=12;
+        # regression_metrics applies R2>r2_thr itself). The primary score is the
+        # diagonal mean (each prediction vs its OWN subject, averaged); the
+        # diagonality index = diagonal_mean - off_diagonal_mean measures how much of
+        # that comes from subject-specific structure vs the shared group-average map.
         roi = self.roi_mask.cpu().numpy()
         primary = PRIMARY_METRIC[self.prediction]
-        per_subject = []
-        for pred, y, r2, ecc in self._test:
-            sel = roi.copy()
+        n = len(self._test)
+        M = np.full((n, n), np.nan)
+        for j in range(n):
+            _, yj, r2j, eccj = self._test[j]
+            selj = roi.copy()
             if self.prediction == "eccentricity":
-                sel = sel & (ecc <= self.ecc_gt_max)
-            m = regression_metrics(pred[sel], y[sel], r2[sel], self.prediction, self.r2_thr)
-            if primary in m and np.isfinite(m[primary]):
-                per_subject.append(m[primary])
-        score = float(np.mean(per_subject)) if per_subject else float("nan")
+                selj = selj & (eccj <= self.ecc_gt_max)
+            if selj.sum() < 2:
+                continue
+            for i in range(n):
+                m = regression_metrics(self._test[i][0][selj], yj[selj], r2j[selj],
+                                       self.prediction, self.r2_thr)
+                if primary in m:
+                    M[i, j] = m[primary]
+        diag = np.diag(M)
+        off = M[~np.eye(n, dtype=bool)] if n > 1 else np.array([np.nan])
+        score = float(np.nanmean(diag)) if np.isfinite(diag).any() else float("nan")
+        di = (float(np.nanmean(diag) - np.nanmean(off))
+              if np.isfinite(diag).any() and np.isfinite(off).any() else float("nan"))
         self.log(f"test_{primary}", score)
+        self.log("test_diagonality_index", di)
         self._test = None
 
     def configure_optimizers(self):
@@ -184,7 +199,7 @@ def run_fold(seed, prediction, hemisphere):
     trainer.fit(model, load(train_ds, shuffle=True), load(val_ds))
     # ckpt_path="best" -> evaluate the early-stopped (best-dev) weights, not the last.
     result = trainer.test(model, load(test_ds), ckpt_path="best")
-    return result[0][f"test_{PRIMARY_METRIC[prediction]}"]
+    return result[0][f"test_{PRIMARY_METRIC[prediction]}"], result[0]["test_diagonality_index"]
 
 
 def main():
@@ -193,9 +208,13 @@ def main():
     for prediction in PREDICTIONS:
         primary = PRIMARY_METRIC[prediction]
         for hemisphere in HEMISPHERES:
-            scores = [run_fold(seed, prediction, hemisphere) for seed in SEEDS]
+            folds = [run_fold(seed, prediction, hemisphere) for seed in SEEDS]
+            corrs = [c for c, _ in folds]
+            dis = [d for _, d in folds]
             print(f"\n[{prediction}/{hemisphere}] test {primary} over {len(SEEDS)} seeds: "
-                  f"{np.nanmean(scores):.4f} +/- {np.nanstd(scores):.4f}  {scores}")
+                  f"{np.nanmean(corrs):.4f} +/- {np.nanstd(corrs):.4f}  {[round(c, 4) for c in corrs]}"
+                  f"\n[{prediction}/{hemisphere}] diagonality index: "
+                  f"{np.nanmean(dis):.4f} +/- {np.nanstd(dis):.4f}  {[round(d, 4) for d in dis]}")
 
 
 if __name__ == "__main__":
