@@ -23,11 +23,14 @@ import torch
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from models.patching import load_patch_indices, patchify
+from models.config import ENCODER_KWARGS
 
-RAW_ROOT = "data/pretraining/raw_sphere"
-OUT_ROOT = "data/pretraining"
+RAW_ROOT = os.environ.get("PREPARE_RAW_ROOT", "data/pretraining/raw_sphere")
+OUT_ROOT = os.environ.get("PREPARE_OUT_ROOT", "data/pretraining")
 CHANNELS = ["curv", "sulc", "thickness"]
-VAL_FRACTION = 0.2
+VAL_FRACTION = float(os.environ.get("PREPARE_VAL_FRACTION", 0.2))
+# patch grid must match the encoder -- defaults to the shared config's ico_grid
+ICO_GRID = int(os.environ.get("PREPARE_ICO_GRID", ENCODER_KWARGS["ico_grid"]))
 SEED = 0
 
 
@@ -64,7 +67,7 @@ def main():
     num_val = max(1, round(len(subjects) * VAL_FRACTION))
     val_subjects = set(subjects[:num_val])
 
-    patch_indices = load_patch_indices(ico_mesh=6, ico_grid=4, reorder=False)
+    patch_indices = load_patch_indices(ico_mesh=6, ico_grid=ICO_GRID, reorder=False)
 
     for split_dir in ("train", "val"):
         os.makedirs(osp.join(OUT_ROOT, split_dir), exist_ok=True)

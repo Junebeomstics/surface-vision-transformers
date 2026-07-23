@@ -3,6 +3,7 @@ data/finetuning/
 data/pretraining/
 data/hcp_ico6/
 logs/
+experiments/
 
 # python / jupyter artifacts
 __pycache__/

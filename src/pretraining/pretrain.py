@@ -18,11 +18,17 @@ from dataset import HCPDataModule
 from mpp import SiTPretraining
 from models.config import ENCODER_KWARGS
 
-DATA_ROOT = "data/pretraining"
-CKPT_DIR = "checkpoints"
-BATCH_SIZE = 16
-NUM_WORKERS = 8
-MAX_EPOCHS = 2
+# Each run is scoped to its own experiment folder so checkpoints/logs never
+# collide across runs: experiments/<EXPERIMENT>/{checkpoints,logs}. Override
+# EXPERIMENT / DATA_ROOT / epochs / batch per run via env vars (see CLAUDE.md).
+EXPERIMENT = os.environ.get("PRETRAIN_EXPERIMENT", "default")
+DATA_ROOT = os.environ.get("PRETRAIN_DATA_ROOT", "data/pretraining")
+EXP_DIR = os.path.join("experiments", EXPERIMENT)
+CKPT_DIR = os.path.join(EXP_DIR, "checkpoints")
+LOG_DIR = os.path.join(EXP_DIR, "logs")
+BATCH_SIZE = int(os.environ.get("PRETRAIN_BATCH_SIZE", 16))
+NUM_WORKERS = int(os.environ.get("PRETRAIN_NUM_WORKERS", 8))
+MAX_EPOCHS = int(os.environ.get("PRETRAIN_MAX_EPOCHS", 2))
 LR = 1e-4
 WEIGHT_DECAY = 0.05
 MASK_RATIO = 0.6
@@ -38,7 +44,7 @@ def main():
     # Runs on 1 gpu by default
     trainer = L.Trainer(
         max_epochs=MAX_EPOCHS,
-        logger=CSVLogger("logs", name="pretraining"),
+        logger=CSVLogger(LOG_DIR, name="pretraining"),
         callbacks=[ModelCheckpoint(dirpath=CKPT_DIR, filename="pretrained-{epoch}-{val_loss:.4f}",
                                     monitor="val_loss", save_top_k=1, save_last=True)],
         log_every_n_steps=1,
