@@ -113,6 +113,31 @@ train/dev/test. Pretraining on the full 1112 (incl. those 181) lets fine-tuning
 test subjects be seen — unsupervised — during pretraining. For strict eval,
 pretrain only on the 931 metrics-only subjects (no GT).
 
+## Evaluation criteria (retinotopy) — official policy
+
+Mirror deepRetinotopy's canonical NSD evaluation so our SiT numbers are
+comparable (source: `/mnt/scratch/junb/deepRetinotopy/CLAUDE.md` lines 62-87 +
+`nsd_evaluation/`). **Primary metric per target:**
+
+| target | primary metric | how | notes |
+|---|---|---|---|
+| polarAngle | **circular correlation** (astropy `circcorrcoef`) | `circcorrcoef(deg2rad(mod(pred,360)), deg2rad(mod(gt,360)))` | degrees→mod360→radians. **Never score PA with Pearson alone.** |
+| eccentricity | **Pearson** (+ Spearman) | `pearsonr` on linear degrees | extra mask: GT ecc ≤ 12 |
+| pRFsize | **Spearman** (+ Pearson) | `spearmanr` | linear |
+
+**Evaluation mask** (all must hold, per vertex):
+`isfinite(pred) & isfinite(gt) & gt != 0 & (R2 > 10) & ROI ∈ EVC`
+- **R2 > 10**, strict `>`. R2 here is **0–100 scale** (10 = 10% explained
+  variance); `data/hcp_ico6/gt` R2 is on this scale (range ~0–77). If a source
+  stores R2 as 0–1, use `> 0.1` instead.
+- **EVC ROI** = V1/V2/V3 (ventral+dorsal), ROI label ids `{1,2,3,4,5,6}`. The
+  `data/finetuning/roi_vertex_index_*_v1v3fovea.pt` map corresponds to this.
+- eccentricity additionally masks GT ecc ≤ 12.
+
+**Aggregation:** compute the metric **per subject first, then average across
+subjects** (per seed); then average across seeds 0/1/2. Do **not** pool all
+vertices from all subjects into one correlation.
+
 ## Git
 
 Trunk is `federico/fine_tuning`. Feature branches for new work; keep the
