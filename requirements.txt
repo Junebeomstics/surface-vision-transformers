@@ -5,3 +5,5 @@ einops
 torch_geometric
 pandas
 numpy
+scipy
+astropy

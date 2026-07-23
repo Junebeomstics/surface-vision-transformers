@@ -26,7 +26,9 @@ from lightning.pytorch.loggers import CSVLogger
 from torch.utils.data import DataLoader
 
 from models.dense_head import SiTDense
+from models.config import ENCODER_KWARGS
 from sit_dataset import SiTRetinotopy
+from metrics import masked_circular_loss, regression_metrics, CIRCULAR, PRIMARY_METRIC
 
 ROOT = "data/finetuning"
 PRETRAINED_CKPT = "checkpoints/pretrained.ckpt"   # weights to fine-tune from
@@ -38,23 +40,18 @@ MAX_EPOCHS = 100
 PATIENCE = 30
 R2_THR = 2.2              # evaluate test error only on reliably-fit vertices
 
-# must match the ENCODER_KWARGS the pretrained checkpoint (PRETRAINED_CKPT) used
-ENCODER_KWARGS = dict(
-    ico_grid=2,
-    num_channels=3,
-    embed_dim=192,
-    depth=12,
-    num_heads=3,
-    dim_head=64,
-    mlp_ratio=4,
-)
+# ENCODER_KWARGS imported from models.config -- the same encoder config the
+# pretrained checkpoint (PRETRAINED_CKPT) was built with, so encoder.* weights load.
 
 
 class SiTFineTune(L.LightningModule):
-    def __init__(self, encoder_kwargs, lr=1e-5):
+    def __init__(self, encoder_kwargs, prediction, lr=1e-5, r2_thr=R2_THR):
         super().__init__()
         self.save_hyperparameters()
         self.model = SiTDense(encoder_kwargs, num_classes=1)
+        self.prediction = prediction
+        self.r2_thr = r2_thr
+        self._test_buf = None
 
     def load_pretrained_encoder(self, ckpt_path):
         # the pretraining checkpoint holds a different LightningModule (encoder +
@@ -69,25 +66,51 @@ class SiTFineTune(L.LightningModule):
     def forward(self, x):
         return self.model(x)
 
+    def _loss(self, pred, target, r2):
+        # polarAngle is circular: a wrap-aware loss, still R2-weighted so the
+        # medial wall / non-ROI (R2=0) contributes nothing. Non-circular
+        # quantities keep the R2-weighted Smooth-L1 from upstream.
+        if self.prediction in CIRCULAR:
+            return masked_circular_loss(pred, target, r2)
+        return F.smooth_l1_loss(r2 * pred, r2 * target)
+
     def training_step(self, batch, _):
         x, target, r2 = batch
-        pred = self(x)
-        loss = F.smooth_l1_loss(r2 * pred, r2 * target)   # R2-weighted, as upstream
+        loss = self._loss(self(x), target, r2)
         self.log("train_loss", loss, on_step=False, on_epoch=True, batch_size=x.shape[0])
         return loss
 
     def validation_step(self, batch, _):
         x, target, r2 = batch
-        pred = self(x)
-        loss = F.smooth_l1_loss(r2 * pred, r2 * target)
+        loss = self._loss(self(x), target, r2)
         self.log("val_loss", loss, prog_bar=True, batch_size=x.shape[0])
+
+    def on_test_epoch_start(self):
+        self._test_buf = {"pred": [], "target": [], "r2": []}
 
     def test_step(self, batch, _):
         x, target, r2 = batch
         pred = self(x)
-        mask = r2 > R2_THR                                # reliable vertices only
-        mae = (pred[mask] - target[mask]).abs().mean()    # generalization error
-        self.log("test_mae", mae, batch_size=int(mask.sum()))
+        self._test_buf["pred"].append(pred.detach().cpu())
+        self._test_buf["target"].append(target.detach().cpu())
+        self._test_buf["r2"].append(r2.detach().cpu())
+
+    def on_test_epoch_end(self):
+        # Correlation metrics are not batch-averageable, so accumulate all test
+        # vertices and score once. Per project policy: circular correlation for
+        # polarAngle, Pearson + Spearman for eccentricity / pRFsize, over
+        # vertices with R2 > r2_thr.
+        pred = torch.cat(self._test_buf["pred"]).numpy()
+        target = torch.cat(self._test_buf["target"]).numpy()
+        r2 = torch.cat(self._test_buf["r2"]).numpy()
+        metrics = regression_metrics(pred, target, r2, self.prediction, self.r2_thr)
+        # always log the primary metric (nan if no vertices cleared r2_thr) so the
+        # caller can read test_<primary> without a KeyError on a degenerate fold
+        primary = PRIMARY_METRIC[self.prediction]
+        metrics.setdefault(primary, float("nan"))
+        for k, v in metrics.items():
+            self.log(f"test_{k}", v)
+        self._test_buf = None
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
@@ -101,7 +124,7 @@ def run_fold(seed, prediction, hemisphere):
     test_ds = SiTRetinotopy(ROOT, "Test", **common)
     load = lambda ds, shuffle=False: DataLoader(ds, batch_size=BATCH_SIZE, shuffle=shuffle)
 
-    model = SiTFineTune(ENCODER_KWARGS)
+    model = SiTFineTune(ENCODER_KWARGS, prediction=prediction)
     model.load_pretrained_encoder(PRETRAINED_CKPT)   # start from pretrained weights
 
     trainer = L.Trainer(
@@ -115,14 +138,17 @@ def run_fold(seed, prediction, hemisphere):
     trainer.fit(model, load(train_ds, shuffle=True), load(val_ds))
     # ckpt_path="best" -> evaluate the early-stopped (best-dev) weights, not the last.
     result = trainer.test(model, load(test_ds), ckpt_path="best")
-    return result[0]["test_mae"]
+    # report the policy primary metric (circ_corr for polarAngle, else pearson/spearman)
+    primary = PRIMARY_METRIC[prediction]
+    return result[0][f"test_{primary}"]
 
 
 def main():
     for prediction in PREDICTIONS:
+        primary = PRIMARY_METRIC[prediction]
         for hemisphere in HEMISPHERES:
             scores = [run_fold(seed, prediction, hemisphere) for seed in SEEDS]
-            print(f"\n[{prediction}/{hemisphere}] test MAE over {len(SEEDS)} folds: "
+            print(f"\n[{prediction}/{hemisphere}] test {primary} over {len(SEEDS)} folds: "
                   f"{np.mean(scores):.4f} +/- {np.std(scores):.4f}")
 
 
