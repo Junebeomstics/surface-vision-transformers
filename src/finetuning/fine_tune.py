@@ -59,6 +59,9 @@ LR = float(os.environ.get("FT_LR", 1e-5))
 
 R2_THR = 10.0        # deepRetinotopy policy: R2 > 10 (0-100 scale)
 ECC_GT_MAX = 12.0    # eccentricity extra mask: GT ecc <= 12
+# hemisphere to apply deepRetinotopy's 180-deg polar-angle re-referencing to
+# (its PA is centered near 180 and otherwise collapses to the antipode)
+REREF_PA_HEMI = os.environ.get("FT_REREF_PA_HEMI", "Right")
 
 _SPLIT_FILE = {"Train": "train_subjects.txt", "Development": "dev_subjects.txt",
                "Test": "test_subjects.txt"}
@@ -154,7 +157,8 @@ class SiTFineTune(L.LightningModule):
 
 def _dataset(split, seed, hemisphere, prediction):
     subjects = read_subjects(osp.join(SPLITS_ROOT, f"seed{seed}", _SPLIT_FILE[split]))
-    return RetinotopyDataset(CACHE_ROOT, subjects, hemisphere=hemisphere, prediction=prediction)
+    return RetinotopyDataset(CACHE_ROOT, subjects, hemisphere=hemisphere, prediction=prediction,
+                             reref_pa=(hemisphere == REREF_PA_HEMI))
 
 
 def run_fold(seed, prediction, hemisphere):

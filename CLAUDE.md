@@ -138,6 +138,15 @@ comparable (source: `/mnt/scratch/junb/deepRetinotopy/CLAUDE.md` lines 62-87 +
 subjects** (per seed); then average across seeds 0/1/2. Do **not** pool all
 vertices from all subjects into one correlation.
 
+**Polar-angle re-referencing (required for one hemisphere).** deepRetinotopy
+re-references polar angle by 180° on one hemisphere so both share a frame
+(`read_HCPdata`: `PA<180 -> +180`, `PA>180 -> -180`, i.e. `(PA+180) mod 360`).
+Our fine-tuning applies it to the hemisphere whose raw PA is centered near 180°
+(the **Right** hemisphere in HCP fs_LR), consistently in the training target and
+the eval GT (`FT_REREF_PA_HEMI`, default `Right`). Without it the circular loss
+collapses that hemisphere to the antipode (circ_corr ≈ −0.75 instead of ≈ +0.75);
+the other hemisphere already sits near the 0/360 wrap the circular loss handles.
+
 ## Git
 
 Trunk is `federico/fine_tuning`. Feature branches for new work; keep the
